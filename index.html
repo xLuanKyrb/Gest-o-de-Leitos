@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Gestão de Leitos UPA - Santa Paula</title>
+<link rel="stylesheet" href="./style.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  #grafico-container {
+    position: fixed;
+    bottom: 20px;
+    right: 200px;
+    width: 140px;   
+    height: 180px;    
+    background: #ffffffcc;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    padding: 6px;   
+    z-index: 999;
+    backdrop-filter: blur(6px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  #grafico-container h4 {
+    text-align: center;
+    margin: 4px 0;
+    font-size: 13px; 
+  }
+
+  #graficoLeitos {
+    width: 100px !important;   
+    height: 100px !important; 
+  }
+
+  #contagem-leitos {
+    display: flex;
+    justify-content: space-around;
+    width: 100%;
+    margin-bottom: 3px;
+  }
+
+  .contador {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: bold;
+    font-size: 11px; 
+  }
+
+  .quadrado {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .livre {
+    background-color: #4ade80;
+  }
+
+  .ocupado {
+    background-color: #ef4444;
+  }
+</style>
+</head>
+
+<body>
+<header style="display:flex;justify-content:space-between;align-items:center">
+  <h1>Gestão de Leitos</h1>
+  <div><a href="./admin"><button class="secondary">Resgistrar Leitos</button></a>
+    <a href="../relatorio"><button class="secondary">Relatórios</button></a> </div>
+</header>
+
+<div id="legenda-status">
+  <div class="item-legenda">
+    <span class="cor livre"></span> Livre
+  </div>
+  <div class="item-legenda">
+    <span class="cor ocupado"></span> Ocupado
+  </div>
+</div>
+
+<div id="blocks" class="blocks"></div>
+
+<div id="grafico-container">
+  <h4>Situação dos Leitos</h4>
+  <canvas id="graficoLeitos"></canvas>
+  <div id="contagem-leitos">
+    <div class="contador"><span class="quadrado livre"></span><span id="qtLivres">0</span></div>
+    <div class="contador"><span class="quadrado ocupado"></span><span id="qtOcupados">0</span></div>
+  </div>
+</div>
+
+<script>
+const LIST_URL = './api.php?action=list';
+const UPDATE_INTERVAL = 30000;
+
+const cores = {
+  "Observação Masculina": "#dbeafe",
+  "Observação Feminina": "#ffeef6",
+  "Observação Pediátrica": "#e6fffa",
+  "Isolamento Adulto": "#fff7cc",
+  "Isolamento Pediátrico": "#f3e8ff"
+};
+
+function formatarIniciais(nome){
+  if(!nome) return '';
+  return nome.split(/\s+/)
+             .filter(p=>p.length>1)
+             .map(p=>p.charAt(0).toUpperCase()+'.')
+             .join(' ');
+}
+
+function montarCard(p){
+  const classeStatus = p.status === 'livre' ? 'leito livre' : 'leito ocupado';
+  const nomeExibir = p.status === 'livre' ? 'Livre' : formatarIniciais(p.nome);
+  
+  return `<div class="${classeStatus}">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong>Leito ${p.leito} — ${nomeExibir}</strong></div>
+      <div class="muted">${p.entrada || '-'}</div>
+    </div>
+    <div class="meta"><strong>Nasc:</strong> ${p.nascimento || '-'} • <strong>Atend:</strong> ${p.atendimento || '-'}</div>
+    <div class="meta">${p.aguardando ? 'Aguardando: '+p.aguardando : ''} ${p.pendencias ? ' • Pendências: '+p.pendencias : ''}</div>
+    <div class="muted">Médico: ${p.medico || '-'} • Conduta: ${p.conduta || '-'} • Dieta: ${p.dieta || '-'}</div>
+    <div class="muted">Hosp: ${p.hospital || '-'} • Obs: ${p.observacao || '-'}</div>
+  </div>`;
+}
+
+
+let grafico = null;
+
+async function carregar(){
+  try{
+    const r = await fetch(LIST_URL);
+    const j = await r.json();
+    if(!j.success) return;
+    const dados = j.data;
+
+    const livres = dados.filter(p => p.status === 'livre').length;
+    const ocupados = dados.filter(p => p.status === 'ocupado').length;
+
+    document.getElementById('qtLivres').textContent = livres;
+    document.getElementById('qtOcupados').textContent = ocupados;
+
+    atualizarGrafico(livres, ocupados);
+
+    const grupos = {};
+    dados.forEach(p=>{
+      if(!grupos[p.local]) grupos[p.local]=[];
+      grupos[p.local].push(p);
+    });
+
+    const container = document.getElementById('blocks');
+    container.innerHTML='';
+
+    const ordem = ["Observação Masculina","Observação Feminina","Observação Pediátrica","Isolamento Adulto","Isolamento Pediátrico"];
+    for(const local of ordem){
+      const lista = grupos[local] || [];
+      if(lista.length===0) continue;
+      lista.sort((a,b)=>parseInt(a.leito)-parseInt(b.leito));
+      const bloco=document.createElement('div');
+      bloco.className='block';
+      bloco.style.background = cores[local] || '#fff';
+      const titulo=document.createElement('h3');
+      titulo.textContent = local+` — ${lista.length} paciente(s)`;
+      bloco.appendChild(titulo);
+      lista.forEach(p=>bloco.insertAdjacentHTML('beforeend', montarCard(p)));
+      container.appendChild(bloco);
+    }
+  } catch(e){ console.error(e); }
+}
+
+/// Gráfico
+function atualizarGrafico(livres, ocupados) {
+  const ctx = document.getElementById('graficoLeitos').getContext('2d');
+  const total = livres + ocupados;
+
+  if (grafico) {
+    grafico.data.datasets[0].data = [livres, ocupados];
+    grafico.update();
+    return;
+  }
+
+  grafico = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: ['Livres', 'Ocupados'],
+      datasets: [{
+        data: [livres, ocupados],
+        backgroundColor: ['#4ade80', '#ef4444']
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.label}: ${ctx.parsed} (${((ctx.parsed/total)*100).toFixed(1)}%)`
+          }
+        }
+      }
+    }
+  });
+}
+
+carregar();
+setInterval(carregar, UPDATE_INTERVAL);
+</script>
+
+<div id="relogio" class="relogio"></div>
+
+<script>
+function atualizarRelogio() {
+  const agora = new Date();
+  const data = agora.toLocaleDateString('pt-BR');
+  const hora = agora.toLocaleTimeString('pt-BR', {hour12: false});
+  document.getElementById('relogio').textContent = `${data} — ${hora}`;
+}
+setInterval(atualizarRelogio, 1000);
+atualizarRelogio();
+</script>
+
+</body>
+</html>

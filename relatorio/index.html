@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório de Rotatividade de Leitos</title>
+  
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8f9fa; margin: 0; padding: 20px; }
+    h1 { text-align: center; color: #333; }
+    .filtros { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    label { font-weight: bold; color: #555; }
+    input, select, button { padding: 8px; width: 90%; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+    button { background: #007bff; color: white; cursor: pointer; font-weight: bold; }
+    button:hover { background: #0056b3; }
+    .acoes { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px; }
+    .resumo { background: #fff; border-radius: 10px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; justify-content: space-around; text-align: center; }
+    .resumo div { flex: 1; }
+    .resumo h2 { margin: 0; color: #007bff; }
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #007bff; color: white; }
+    tr:hover { background: #f1f1f1; }
+    .export-btn { background: #28a745; }
+    .export-btn:hover { background: #1e7e34; }
+    .pdf-btn { background: #dc3545; }
+    .pdf-btn:hover { background: #b02a37; }
+  </style>
+</head>
+<body>
+
+  <h1>Relatório de Rotatividade de Leitos</h1>
+
+  <div class="filtros">
+    <div><label>Data Início:</label><input type="date" id="inicio"></div>
+    <div><label>Data Fim:</label><input type="date" id="fim"></div>
+    <div><label>Setor:</label>
+      <select id="setor">
+        <option value="">Todos</option>
+        <option>Observação Masculina</option>
+        <option>Observação Feminina</option>
+        <option>Observação Pediátrica</option>
+        <option>Isolamento Adulto</option>
+        <option>Isolamento Pediátrico</option>
+      </select>
+    </div>
+    <div><label>Hospital Destino:</label><input type="text" id="hospital" placeholder="Ex: Santa Casa"></div>
+    <div><label>Dia da Semana:</label>
+      <select id="diaSemana">
+        <option value="">Todos</option>
+        <option value="0">Domingo</option>
+        <option value="1">Segunda</option>
+        <option value="2">Terça</option>
+        <option value="3">Quarta</option>
+        <option value="4">Quinta</option>
+        <option value="5">Sexta</option>
+        <option value="6">Sábado</option>
+      </select>
+    </div>
+    <div style="align-self: end;"><button onclick="gerarRelatorio()">Gerar Relatório</button></div>
+  </div>
+
+    <div class="filtros" id="colunasExportar">
+    <label style="grid-column: 1 / -1; font-weight:bold; border: #0056b3;">Selecionar colunas para exportar:</label>
+    <label><input type="checkbox" class="coluna" value="nome" checked> Nome</label>
+    <label><input type="checkbox" class="coluna" value="local" checked> Setor</label>
+    <label><input type="checkbox" class="coluna" value="leito" checked> Leito</label>
+    <label><input type="checkbox" class="coluna" value="entrada" checked> Entrada</label>
+    <label><input type="checkbox" class="coluna" value="saida" checked> Saída</label>
+    <label><input type="checkbox" class="coluna" value="tempo_ocupacao" checked> Tempo Ocupação</label>
+    <label><input type="checkbox" class="coluna" value="hospital" checked> Hospital</label>
+    </div>
+
+
+  <div class="acoes">
+    <button class="export-btn" onclick="exportarExcel()">Exportar Excel</button>
+    <button class="pdf-btn" onclick="exportarPDF()">Exportar PDF</button>
+  </div>
+
+  <div class="resumo" id="resumo">
+    <div><h2>Entradas</h2><p id="entradas">-</p></div>
+    <div><h2>Saídas</h2><p id="saidas">-</p></div>
+    <div><h2>Média Permanência</h2><p id="media">-</p></div>
+  </div>
+
+  <table id="tabela">
+    <thead>
+      <tr><th>Nome</th><th>Setor</th><th>Leito</th><th>Entrada</th><th>Saída</th><th>Tempo Ocupação</th><th>Hospital</th></tr>
+    </thead>
+    <tbody></tbody>  
+  </table>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.19.3/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <script>
+    let dadosAtuais = [];
+
+    async function gerarRelatorio() {
+      const inicio = document.getElementById('inicio').value;
+      const fim = document.getElementById('fim').value;
+      const setor = document.getElementById('setor').value;
+      const hospital = document.getElementById('hospital').value;
+      const diaSemana = document.getElementById('diaSemana').value;
+
+      const params = new URLSearchParams({ action: 'relatorio', inicio, fim, setor, hospital, diaSemana });
+
+      try {
+        const response = await fetch('../api.php?' + params.toString());
+        const data = await response.json();
+
+        if (!data.success) throw new Error(data.message || 'Erro ao gerar relatório.');
+
+        dadosAtuais = data.data || [];
+        const tbody = document.querySelector('#tabela tbody');
+        tbody.innerHTML = '';
+
+        if (dadosAtuais.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Nenhum dado encontrado</td></tr>';
+        } else {
+          dadosAtuais.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${r.nome}</td>
+              <td>${r.local}</td>
+              <td>${r.leito}</td>
+              <td>${r.entrada || '-'}</td>
+              <td>${r.saida || '-'}</td>
+              <td>${r.tempo_ocupacao || '-'}</td>
+              <td>${r.hospital || '-'}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+
+        document.getElementById('entradas').innerText = data.resumo?.entradas ?? '-';
+        document.getElementById('saidas').innerText = data.resumo?.saidas ?? '-';
+        document.getElementById('media').innerText = data.resumo?.media ?? '-';
+
+      } catch (e) {
+        alert('Erro: ' + e.message);
+        console.error(e);
+      }
+    }
+
+    function loadScript(url) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Falha ao carregar ' + url));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function ensureXLSX() {
+      if (typeof XLSX !== 'undefined') return;
+      await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+      if (typeof XLSX === 'undefined') throw new Error('Biblioteca XLSX não disponível');
+    }
+
+    async function exportarExcel() {
+  try {
+    if (!dadosAtuais || dadosAtuais.length === 0)
+      return alert('Nenhum dado para exportar.');
+
+    await ensureXLSX();
+
+    const selecionadas = Array.from(document.querySelectorAll('.coluna:checked')).map(c => c.value);
+    if (selecionadas.length === 0) return alert('Selecione pelo menos uma coluna.');
+
+    const wb = XLSX.utils.book_new();
+
+    const resumo = [
+      ['Entradas', document.getElementById('entradas').innerText],
+      ['Saídas', document.getElementById('saidas').innerText],
+      ['Média (h)', document.getElementById('media').innerText],
+      []
+    ];
+    const resumoWS = XLSX.utils.aoa_to_sheet(resumo);
+    XLSX.utils.book_append_sheet(wb, resumoWS, 'Resumo');
+
+    const dadosFormatados = dadosAtuais.map(d => {
+      const obj = {};
+      selecionadas.forEach(c => {
+        const titulo = {
+          nome: "Nome",
+          local: "Setor",
+          leito: "Leito",
+          entrada: "Entrada",
+          saida: "Saída",
+          tempo_ocupacao: "Tempo Ocupação",
+          hospital: "Hospital"
+        }[c] || c;
+        obj[titulo] = d[c] || '-';
+      });
+      return obj;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(dadosFormatados);
+    XLSX.utils.book_append_sheet(wb, ws, 'Detalhes');
+
+    XLSX.writeFile(wb, `Relatorio_Leitos_${new Date().toISOString().slice(0,10)}.xlsx`);
+  } catch (err) {
+    alert('Erro ao exportar Excel: ' + err.message);
+    console.error(err);
+  }
+}
+
+    function exportarPDF() {
+      if (!dadosAtuais || dadosAtuais.length === 0) return alert('Nenhum dado para exportar.');
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape' });
+
+      doc.setFontSize(14);
+      doc.text("Relatório de Rotatividade de Leitos", 14, 15);
+
+      let y = 25;
+      doc.setFontSize(10);
+      doc.text(`Entradas: ${document.getElementById('entradas').innerText} | Saídas: ${document.getElementById('saidas').innerText} | Média: ${document.getElementById('media').innerText}`, 14, y);
+      y += 8;
+
+      const colunas = ["Nome", "Setor", "Leito", "Entrada", "Saída", "Tempo", "Hospital"];
+      const linhas = dadosAtuais.map(r => [r.nome, r.local, r.leito, r.entrada || '-', r.saida || '-', r.tempo_ocupacao || '-', r.hospital || '-']);
+
+      doc.autoTable({
+        head: [colunas],
+        body: linhas,
+        startY: y,
+        theme: 'striped',
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [0, 123, 255] },
+      });
+
+      doc.save(`Relatorio_Leitos_${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+
+  </script>
+</body>
+</html>

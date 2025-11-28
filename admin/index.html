@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Administração - Leitos UPA</title>
+<link rel="stylesheet" href="../style.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <h1>Administração - Acompanhamento de Leitos</h1>
+    <div><a href="../index.html"><button class="secondary">Visualização</button></a></div>
+    <a href="../relatorio"><button class="secondary">Relatórios</button></a>
+
+  </header>
+
+  <main class="card">
+    <form id="formPaciente">
+      <input type="hidden" id="id_editando">
+      <div class="form-row">
+        <input type="text" id="nome" placeholder="Nome completo" required>
+        <input type="number" id="leito" placeholder="Leito (1-5)" min="1" max="5" required>
+        <select id="local" required>
+          <option value="">Selecione o Local</option>
+          <option>Observação Masculina</option>
+          <option>Observação Feminina</option>
+          <option>Observação Pediátrica</option>
+          <option>Isolamento Adulto</option>
+          <option>Isolamento Pediátrico</option>
+        </select>
+        <input type="date" id="nascimento" required>
+        <input type="text" id="atendimento" placeholder="Número do atendimento" required>
+      </div>
+
+      <div class="form-row">
+        <select id="aguardando">
+          <option value="">Aguardando...</option>
+          <option>Exame</option>
+          <option>Alta</option>
+          <option>Transferência</option>
+          <option>Resultado</option>
+          <option>Nada</option>
+        </select>
+        <input type="text" id="pendencias" placeholder="Pendências (Rx, ECG, etc)">
+        <input type="text" id="medico" placeholder="Médico responsável">
+        <input type="text" id="conduta" placeholder="Conduta / Central de leitos">
+        <select id="dieta">
+          <option value="">Dieta</option>
+          <option>Livre</option>
+          <option>Jejum</option>
+          <option>Hipossódica</option>
+          <option>Pastosa</option>
+        </select>
+        <input type="text" id="hospital" placeholder="Hospital de aceite">
+        <input type="text" id="observacao" placeholder="Observação geral">
+        <input type="text" id="aguardando_vaga" placeholder="Aguardando vaga / medicação / inalação">
+      </div>
+
+      <div style="display:flex;gap:8px; margin-top:10px;">
+        <button type="submit" id="btnSalvar">Adicionar</button>
+        <button type="button" id="limpar" class="secondary">Limpar tudo</button>
+      </div>
+    </form>
+  </main>
+
+  <section class="card">
+    <h3>Pacientes Cadastrados</h3>
+    <table class="table" id="tabela">
+      <thead>
+        <tr>
+          <th>Nome</th><th>Leito</th><th>Local</th><th>Aguardando</th><th>Entrada</th><th>Mais</th><th>Ações</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</div>
+
+<div id="loginPopup" style="display:none;position:fixed;inset:0;background:#0008;align-items:center;justify-content:center;">
+  <div style="background:white;padding:20px;border-radius:8px;box-shadow:0 0 8px #0003;">
+    <h3>Login - Administração</h3>
+    <input type="text" id="user" placeholder="Usuário"><br><br>
+    <input type="password" id="pass" placeholder="Senha"><br><br>
+    <button id="loginBtn">Entrar</button>
+  </div>
+</div>
+
+<script>
+const API_BASE = '../api.php';
+const LIST_URL = '../api.php?action=list';
+const REMOVE_URL = '../api.php?action=delete';
+const UPDATE_URL = '../api.php?action=update';
+
+const usuarios = {
+  "admin": "admin",
+};
+
+function verificarLogin() {
+  if(localStorage.getItem('usuarioLogado')) return;
+  document.getElementById('loginPopup').style.display='flex';
+}
+
+document.getElementById('loginBtn').addEventListener('click',()=>{
+  const u=document.getElementById('user').value.trim();
+  const p=document.getElementById('pass').value.trim();
+  if(usuarios[u] && usuarios[u]===p){
+    localStorage.setItem('usuarioLogado',u);
+    document.getElementById('loginPopup').style.display='none';
+  } else {
+    alert('Usuário ou senha inválidos');
+  }
+});
+
+async function fetchList(){
+  const r = await fetch(LIST_URL);
+  return await r.json();
+}
+
+function valorSeguro(v) {
+  return (v && v !== "undefined" && v !== "") ? v : "--";
+}
+
+async function carregarTabela(){
+  const r = await fetchList();
+  const tbody = document.querySelector('#tabela tbody');
+  tbody.innerHTML='';
+  if(!r.success) return;
+
+  r.data.forEach(p=>{
+    const tr=document.createElement('tr');
+
+    const more = `
+      <div class="small">
+        Nasc: ${valorSeguro(p.nascimento)}<br/>
+        Atendimento: ${valorSeguro(p.atendimento)}<br/>
+        Pend: ${valorSeguro(p.pendencias)}<br/>
+        Médico: ${valorSeguro(p.medico)}<br/>
+        Conduta: ${valorSeguro(p.conduta)}<br/>
+        Dieta: ${valorSeguro(p.dieta)}<br/>
+        Hospital: ${valorSeguro(p.hospital)}<br/>
+        Obs: ${valorSeguro(p.observacao)}<br/>
+        Aguardando vaga: ${valorSeguro(p.aguardando_vaga)}
+      </div>`;
+
+    tr.innerHTML = `
+      <td>${valorSeguro(p.nome)}</td>
+      <td>${valorSeguro(p.leito)}</td>
+      <td>${valorSeguro(p.local)}</td>
+      <td>${valorSeguro(p.aguardando)}</td>
+      <td>${valorSeguro(p.entrada)}</td>
+      <td>${more}</td>
+      <td>
+        <button data-id="${p.id}" class="edit">✏️</button>
+        <button data-id="${p.id}" class="rem">🗑️</button>
+      </td>`;
+
+    tbody.appendChild(tr);
+  });
+
+  // Remover
+  document.querySelectorAll('.rem').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      const id = e.target.dataset.id;
+      if(!confirm('Remover paciente?')) return;
+      const resp = await fetch(REMOVE_URL, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: id})
+      });
+      const j = await resp.json();
+      if(j.success) carregarTabela(); else alert(j.message || 'Erro');
+    });
+  });
+
+  // Editar
+  document.querySelectorAll('.edit').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      const id = e.target.dataset.id;
+      const p = r.data.find(x=>x.id==id);
+      if(!p) return;
+      document.getElementById('id_editando').value=p.id;
+      for(const campo in p){
+        if(document.getElementById(campo))
+          document.getElementById(campo).value=p[campo];
+      }
+      document.getElementById('btnSalvar').textContent='Salvar Alterações';
+    });
+  });
+}
+
+// Adicionar / Atualizar
+document.getElementById('formPaciente').addEventListener('submit', async ev=>{
+  ev.preventDefault();
+  const idEdit = document.getElementById('id_editando').value;
+  const action = idEdit ? 'update' : 'add';
+  const payload = {
+    id: idEdit || undefined,
+    nome: document.getElementById('nome').value.trim(),
+    leito: parseInt(document.getElementById('leito').value || 0),
+    local: document.getElementById('local').value,
+    nascimento: document.getElementById('nascimento').value,
+    atendimento: document.getElementById('atendimento').value,
+    aguardando: document.getElementById('aguardando').value,
+    pendencias: document.getElementById('pendencias').value,
+    medico: document.getElementById('medico').value,
+    conduta: document.getElementById('conduta').value,
+    dieta: document.getElementById('dieta').value,
+    hospital: document.getElementById('hospital').value,
+    observacao: document.getElementById('observacao').value,
+    aguardando_vaga: document.getElementById('aguardando_vaga').value
+  };
+  const resp = await fetch(`${API_BASE}?action=${action}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const j = await resp.json();
+  if(j.success){
+    document.getElementById('formPaciente').reset();
+    document.getElementById('id_editando').value='';
+    document.getElementById('btnSalvar').textContent='Adicionar';
+    carregarTabela();
+  } else alert(j.message || 'Erro ao salvar');
+});
+
+document.getElementById('limpar').addEventListener('click', async ()=>{
+  if(!confirm('Apagar todos os registros?')) return;
+  const list = await fetchList();
+  if(!list.success) return;
+  for(const p of list.data){
+    await fetch(REMOVE_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id:p.id})
+    });
+  }
+  carregarTabela();
+});
+
+verificarLogin();
+carregarTabela();
+</script>
+
+
+
+
+verificarLogin();
+carregarTabela();
+</script>
+</body>
+</html>
